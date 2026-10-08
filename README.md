@@ -30,8 +30,9 @@ APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
 
 - 使用临时 JDK 17、Kotlin 2.1.20 和 Android SDK 35 完成全部 Kotlin 源码编译检查。
 - 独立运行 JUnit 提醒规则测试：16 项全部通过。
-- 完整 Gradle 构建在下载 `gradle-settings-api:8.9.2` 时因 TLS 握手失败而中断，未生成 APK、未完成 lint；尚未进行真机验证。
-- 已配置 GitHub Actions，在推送后运行测试、构建和 lint，通过后提供 debug APK 下载。
+- GitHub Actions 已通过 `testDebugUnitTest`、`assembleDebug` 和 `lintDebug`，生成 debug APK；尚未进行真机验证。
+- [已通过的构建与 APK 下载](https://github.com/seven11sys/sip-and-fit/actions/runs/37722723138)：登录 GitHub 后，在 Artifacts 中下载 `sip-and-fit-debug`，解压得到 `app-debug.apk`。
+- 已配置 GitHub Actions，在代码推送后运行测试、构建和 lint，通过后提供 debug APK 下载。文档提交可以使用 `[skip ci]` 跳过重复构建。
 - 需要真机验证：通知允许/拒绝、精确定时允许/拒绝、锁屏省电、手机重启、时区修改、快捷操作、关闭提醒。
 - Android 系统和厂商的省电策略可能延迟提醒；强行停止应用后，需再次打开应用恢复安排。
 - 当前 UI 是可操作的原型。周统计、数据导入导出、运动类型/时长、桌面小组件和鸿蒙原生版本尚未实现。
