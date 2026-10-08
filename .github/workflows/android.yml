@@ -1,6 +1,8 @@
 name: Android checks
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,6 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION_NAME="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)"
+          test "$RELEASE_TAG" = "v$VERSION_NAME"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -42,3 +51,26 @@ jobs:
           name: sip-and-fit-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sip-and-fit-debug
+          path: apk
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          APK_FILE="sip-and-fit-${RELEASE_TAG}.apk"
+          cp apk/app-debug.apk "$APK_FILE"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$APK_FILE" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_FILE" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Sip & Fit $RELEASE_TAG"
+          fi

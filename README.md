@@ -57,7 +57,9 @@ APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
 - 使用临时 JDK 17、Kotlin 2.1.20 和 Android SDK 35 完成全部 Kotlin 源码编译检查。
 - 自动测试覆盖提醒规则、记录撤回、自动保存、自定义目标、多次累计、单位换算、自动完成、旧记录兼容、保留提醒时间、后台接收通知、通知类别关闭和测试通知，以及三个页面导航、项目库与目标分离、两种记录流程、旧项目数据迁移、设置弹窗自动保存、统计时间边界和图表随记录撤回更新。
 - GitHub Actions 运行 `testDebugUnitTest`、`assembleDebug` 和 `lintDebug`，通过后生成 debug APK；三个页面与新的运动记录流程仍需安装后真机验证。
-- [构建与 APK 下载](https://github.com/seven11sys/sip-and-fit/actions)：登录 GitHub 后，选择最新通过的构建，在 Artifacts 中下载 `sip-and-fit-debug`，解压得到 `app-debug.apk`。安装包保留 7 天。
+- [安装包下载（Releases）](https://github.com/seven11sys/sip-and-fit/releases)：进入版本页面，在 Assets 中直接下载 `sip-and-fit-v版本号.apk`，无需解压。可直接覆盖安装同签名的旧版并保留记录。
+- [开发构建（Actions）](https://github.com/seven11sys/sip-and-fit/actions)：选择最新通过的构建，在 Artifacts 中下载 `sip-and-fit-debug`，解压得到 `app-debug.apk`。开发构建产物保留 7 天，Release 安装包不受该保留期限制。
+- 发布新版本时，更新 `app/build.gradle.kts` 中的版本号，再推送对应的 `v版本号` 标签。标签构建通过测试和 lint 后，自动创建 GitHub Release 并上传 APK；普通代码推送只生成开发构建。
 - 已配置 GitHub Actions，在代码推送后运行测试、构建和 lint，通过后提供 debug APK 下载。文档提交可以使用 `[skip ci]` 跳过重复构建。
 - 需要真机验证：通知允许/拒绝、精确定时允许/拒绝、锁屏省电、手机重启、时区修改、快捷操作、关闭提醒。
 - Android 系统和厂商的省电策略可能延迟提醒；强行停止应用后，需再次打开应用恢复安排。
