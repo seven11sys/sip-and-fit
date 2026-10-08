@@ -32,7 +32,7 @@ APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
 ## 当前限制与验证
 
 - 使用临时 JDK 17、Kotlin 2.1.20 和 Android SDK 35 完成全部 Kotlin 源码编译检查。
-- 提醒规则有 16 项 JUnit 测试；新增 Robolectric 测试覆盖撤回、旧记录迁移、状态恢复及自动保存。
+- 23 项测试全部通过：16 项提醒规则测试、7 项记录及 UI 自动保存测试，覆盖撤回、旧记录迁移、状态恢复及设置互不干扰。
 - GitHub Actions 已通过 `testDebugUnitTest`、`assembleDebug` 和 `lintDebug`，生成 debug APK；尚未进行真机验证。
 - [构建与 APK 下载](https://github.com/seven11sys/sip-and-fit/actions)：登录 GitHub 后，选择最新通过的构建，在 Artifacts 中下载 `sip-and-fit-debug`，解压得到 `app-debug.apk`。安装包保留 7 天。
 - 已配置 GitHub Actions，在代码推送后运行测试、构建和 lint，通过后提供 debug APK 下载。文档提交可以使用 `[skip ci]` 跳过重复构建。
