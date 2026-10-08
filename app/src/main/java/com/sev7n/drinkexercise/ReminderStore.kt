@@ -151,7 +151,9 @@ class ReminderStore(context: Context) {
         }
         val day = removedDay ?: return false
         prefs.edit().putString("workout.records", remaining.toString()).commit()
-        resetWorkout(day, zone)
+        // Removing an exercise record must not undo an explicit choice to skip today.
+        if (timestamp("workout.notified", zone)?.toLocalDate() == day) clearTimestamp("workout.notified")
+        clearTimestamp("workout.snooze")
         return true
     }
 

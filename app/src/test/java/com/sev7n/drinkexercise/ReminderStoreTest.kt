@@ -101,6 +101,16 @@ class ReminderStoreTest {
         assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
     }
 
+    @Test fun undoingRecordDoesNotUndoExplicitSkip() {
+        val goal = store.workoutGoals().first()
+        store.recordWorkout(goal, goal.unit, BigDecimal.ONE, now)
+        store.skipWorkout(now)
+        store.deleteWorkout(store.workoutRecords(now.zone).first().id, now.zone)
+        assertEquals("今日健身已跳过", store.workoutStatus(now.toLocalDate(), now.zone))
+        store.resetWorkout(now.toLocalDate(), now.zone)
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+    }
+
     @Test fun oldTimeRecordsAndManualCompletionDoNotFakeGoalCompletion() {
         RuntimeEnvironment.getApplication().getSharedPreferences("reminders", Context.MODE_PRIVATE).edit()
             .putString("workout.records", "[{\"at\":${now.toInstant().toEpochMilli()},\"type\":\"跑步\",\"minutes\":30}]")
