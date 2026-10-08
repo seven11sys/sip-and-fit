@@ -18,6 +18,7 @@ enum class WorkoutUnit(val label: String, val dimension: String, val scale: BigD
     }
 }
 
+data class WorkoutProject(val id: String, val name: String, val defaultUnit: WorkoutUnit)
 data class WorkoutGoal(val id: String, val name: String, val unit: WorkoutUnit, val target: BigDecimal?)
 data class WorkoutRecord(val id: String, val at: ZonedDateTime, val projectId: String?,
     val type: String, val unit: WorkoutUnit, val amount: BigDecimal)

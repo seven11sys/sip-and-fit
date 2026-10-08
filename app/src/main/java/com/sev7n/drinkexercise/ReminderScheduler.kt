@@ -146,7 +146,7 @@ object ReminderScheduler {
         if (blocked != null) { store.setDiagnostic(kind, blocked); return false }
         val token = now.toInstant().toEpochMilli()
         if (!test) store.setTimestamp("$kind.notification", now)
-        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+        val open = PendingIntent.getActivity(context, id(kind), Intent(context, MainActivity::class.java).putExtra("page", kind),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         fun action(label: String, action: String, request: Int) = android.app.Notification.Action.Builder(
             android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_menu_info_details), label,

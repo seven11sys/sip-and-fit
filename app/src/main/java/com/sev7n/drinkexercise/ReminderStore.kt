@@ -108,12 +108,20 @@ class ReminderStore(context: Context) {
     }
 
     fun recordWorkout(goal: WorkoutGoal, unit: WorkoutUnit, amount: BigDecimal, now: ZonedDateTime) {
-        require(WorkoutGoals.validAmount(amount, unit))
         require(workoutGoals().any { it.id == goal.id })
+        recordWorkout(goal.name, unit, amount, now, goal.id)
+    }
+
+    fun recordWorkout(name: String, unit: WorkoutUnit, amount: BigDecimal, now: ZonedDateTime, projectId: String? = null) {
+        require(name.isNotBlank() && name.length <= 40)
+        require(WorkoutGoals.validAmount(amount, unit))
+        require(projectId == null || workoutProjects().any { it.id == projectId })
         val array = records("workout.records")
-        array.put(JSONObject().put("id", UUID.randomUUID().toString())
-            .put("at", now.toInstant().toEpochMilli()).put("projectId", goal.id)
-            .put("type", goal.name).put("unit", unit.name).put("amount", amount.toPlainString()))
+        val row = JSONObject().put("id", UUID.randomUUID().toString())
+            .put("at", now.toInstant().toEpochMilli())
+            .put("type", name.trim()).put("unit", unit.name).put("amount", amount.toPlainString())
+        projectId?.let { row.put("projectId", it) }
+        array.put(row)
         prefs.edit().putString("workout.records", array.toString())
             .putStringSet("workout.skipped", prefs.getStringSet("workout.skipped", emptySet())!! - now.toLocalDate().toString())
             .remove("workout.snooze").commit()
@@ -122,13 +130,13 @@ class ReminderStore(context: Context) {
     fun workoutRecords(zone: ZoneId): List<WorkoutRecord> {
         val array = records("workout.records")
         var migrated = false
-        val goals = workoutGoals()
+        val projects = workoutProjects()
         val result = (0 until array.length()).map {
             val row = array.getJSONObject(it)
             val old = !row.has("unit")
             if (old) {
                 row.put("unit", WorkoutUnit.MINUTES.name).put("amount", row.getInt("minutes").toString())
-                goals.firstOrNull { it.name == row.getString("type") }?.let { goal -> row.put("projectId", goal.id) }
+                projects.firstOrNull { it.name == row.getString("type") }?.let { project -> row.put("projectId", project.id) }
                 migrated = true
             }
             WorkoutRecord(row.getString("id"), Instant.ofEpochMilli(row.getLong("at")).atZone(zone),
@@ -166,15 +174,52 @@ class ReminderStore(context: Context) {
         edit.commit()
     }
 
-    fun workoutGoals(): List<WorkoutGoal> {
-        if (!prefs.contains("workout.goals")) {
+    private fun ensureWorkoutProjects() {
+        if (!prefs.contains("workout.projects")) {
             val presets = listOf("速臂器锻炼" to WorkoutUnit.REPETITIONS, "变式平板支撑" to WorkoutUnit.SECONDS,
                 "俯卧撑" to WorkoutUnit.REPETITIONS, "深蹲" to WorkoutUnit.REPETITIONS,
                 "跑步" to WorkoutUnit.KILOMETERS, "骑行" to WorkoutUnit.KILOMETERS, "拉伸" to WorkoutUnit.MINUTES)
-            val array = JSONArray()
-            presets.forEach { (name, unit) -> array.put(goalJson(WorkoutGoal(UUID.randomUUID().toString(), name, unit, null))) }
-            prefs.edit().putString("workout.goals", array.toString()).commit()
+            // Split the old combined list once, keeping IDs so historical progress remains linked.
+            val old = JSONArray(prefs.getString("workout.goals", "[]"))
+            val projects = JSONArray()
+            val goals = JSONArray()
+            for (index in 0 until old.length()) {
+                val row = old.getJSONObject(index)
+                projects.put(JSONObject().put("id", row.getString("id")).put("name", row.getString("name"))
+                    .put("unit", row.getString("unit")))
+                if (row.has("target")) goals.put(row)
+            }
+            if (!prefs.contains("workout.goals")) presets.forEach { (name, unit) ->
+                projects.put(projectJson(WorkoutProject(UUID.randomUUID().toString(), name, unit)))
+            }
+            prefs.edit().putString("workout.projects", projects.toString())
+                .putString("workout.goals", goals.toString()).commit()
         }
+    }
+
+    fun workoutProjects(): List<WorkoutProject> {
+        ensureWorkoutProjects()
+        val array = JSONArray(prefs.getString("workout.projects", "[]"))
+        return (0 until array.length()).map {
+            val row = array.getJSONObject(it)
+            WorkoutProject(row.getString("id"), row.getString("name"), WorkoutUnit.valueOf(row.getString("unit")))
+        }
+    }
+
+    fun addWorkoutProject(name: String): WorkoutProject {
+        val title = name.trim()
+        require(title.isNotEmpty() && title.length <= 40)
+        val all = workoutProjects()
+        require(all.none { it.name.equals(title, ignoreCase = true) })
+        val project = WorkoutProject(UUID.randomUUID().toString(), title, WorkoutUnit.REPETITIONS)
+        val array = JSONArray()
+        (all + project).forEach { array.put(projectJson(it)) }
+        prefs.edit().putString("workout.projects", array.toString()).commit()
+        return project
+    }
+
+    fun workoutGoals(): List<WorkoutGoal> {
+        ensureWorkoutProjects()
         val array = JSONArray(prefs.getString("workout.goals", "[]"))
         return (0 until array.length()).map {
             val row = array.getJSONObject(it)
@@ -186,9 +231,16 @@ class ReminderStore(context: Context) {
     fun saveGoal(goal: WorkoutGoal) {
         require(goal.name.isNotBlank() && goal.name.length <= 40)
         require(goal.target == null || WorkoutGoals.validAmount(goal.target, goal.unit))
+        val projects = workoutProjects()
+        if (projects.none { it.id == goal.id }) {
+            val array = JSONArray()
+            (projects + WorkoutProject(goal.id, goal.name, goal.unit)).forEach { array.put(projectJson(it)) }
+            prefs.edit().putString("workout.projects", array.toString()).commit()
+        }
         val all = workoutGoals().toMutableList()
         val index = all.indexOfFirst { it.id == goal.id }
-        if (index >= 0) all[index] = goal else all.add(goal)
+        if (goal.target == null) all.removeAll { it.id == goal.id }
+        else if (index >= 0) all[index] = goal else all.add(goal)
         val array = JSONArray()
         all.forEach { array.put(goalJson(it)) }
         prefs.edit().putString("workout.goals", array.toString()).remove("workout.notified").commit()
@@ -202,6 +254,9 @@ class ReminderStore(context: Context) {
 
     private fun goalJson(goal: WorkoutGoal) = JSONObject().put("id", goal.id).put("name", goal.name).put("unit", goal.unit.name)
         .apply { goal.target?.let { put("target", it.toPlainString()) } }
+
+    private fun projectJson(project: WorkoutProject) = JSONObject().put("id", project.id)
+        .put("name", project.name).put("unit", project.defaultUnit.name)
 
     private fun records(key: String): JSONArray {
         val array = JSONArray(prefs.getString(key, "[]"))

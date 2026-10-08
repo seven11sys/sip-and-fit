@@ -93,16 +93,21 @@ class ReminderStoreTest {
     }
 
     @Test fun removingProjectKeepsItsRecordsAndDoesNotReseedPresets() {
-        val goal = store.workoutGoals().first()
+        val project = store.workoutProjects().first()
+        val goal = WorkoutGoal(project.id, project.name, project.defaultUnit, BigDecimal.TEN)
+        store.saveGoal(goal)
         store.recordWorkout(goal, goal.unit, BigDecimal.ONE, now)
         store.workoutGoals().forEach { store.deleteGoal(it.id) }
         assertTrue(store.workoutGoals().isEmpty())
+        assertTrue(store.workoutProjects().any { it.id == project.id })
         assertEquals(1, store.workoutRecords(now.zone).size)
         assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
     }
 
     @Test fun undoingRecordDoesNotUndoExplicitSkip() {
-        val goal = store.workoutGoals().first()
+        val project = store.workoutProjects().first()
+        val goal = WorkoutGoal(project.id, project.name, project.defaultUnit, BigDecimal.TEN)
+        store.saveGoal(goal)
         store.recordWorkout(goal, goal.unit, BigDecimal.ONE, now)
         store.skipWorkout(now)
         store.deleteWorkout(store.workoutRecords(now.zone).first().id, now.zone)
@@ -119,6 +124,58 @@ class ReminderStoreTest {
         assertEquals(WorkoutUnit.MINUTES, record.unit)
         assertEquals(BigDecimal("30"), record.amount)
         assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+    }
+
+    @Test fun freshGoalsAreEmptyAndAddingCustomProjectOnlyChangesChoices() {
+        assertTrue(store.workoutGoals().isEmpty())
+        assertEquals(7, store.workoutProjects().size)
+        store.addWorkoutProject("弹力带训练")
+        val reopened = ReminderStore(RuntimeEnvironment.getApplication())
+        assertEquals("弹力带训练", reopened.workoutProjects().last().name)
+        assertTrue(reopened.workoutGoals().isEmpty())
+        assertTrue(reopened.workoutRecords(now.zone).isEmpty())
+    }
+
+    @Test fun freeRecordWithoutGoalDoesNotAddProjectOrCompleteWorkout() {
+        val projects = store.workoutProjects()
+        store.recordWorkout("爬楼梯", WorkoutUnit.MINUTES, BigDecimal("5"), now)
+        val record = store.workoutRecords(now.zone).single()
+        assertEquals("爬楼梯", record.type)
+        assertNull(record.projectId)
+        assertEquals(projects, store.workoutProjects())
+        assertTrue(store.workoutGoals().isEmpty())
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+    }
+
+    @Test fun recordsFromLibraryCanContributeToLaterGoalWithoutDuplication() {
+        val project = store.addWorkoutProject("弹力带训练")
+        store.recordWorkout(project.name, WorkoutUnit.REPETITIONS, BigDecimal("20"), now, project.id)
+        val goal = WorkoutGoal(project.id, project.name, WorkoutUnit.REPETITIONS, BigDecimal("30"))
+        store.saveGoal(goal)
+        store.recordWorkout(goal, goal.unit, BigDecimal("10"), now.plusMinutes(1))
+        assertTrue(now.toLocalDate() in store.workoutBlocked(now.zone))
+        store.deleteGoal(goal.id)
+        assertTrue(store.workoutProjects().any { it.id == project.id })
+        assertEquals(2, store.workoutRecords(now.zone).size)
+        store.saveGoal(goal.copy(target = BigDecimal("40")))
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+        assertEquals("30", WorkoutGoals.display(WorkoutGoals.progress(store.workoutGoals().single(), now.toLocalDate(), store.workoutRecords(now.zone))))
+    }
+
+    @Test fun oldCombinedProjectsSplitWithoutLosingGoalsOrRecordLinks() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("reminders", Context.MODE_PRIVATE)
+        prefs.edit().putString("workout.goals", """[
+            {"id":"arm","name":"速臂器锻炼","unit":"REPETITIONS","target":"30"},
+            {"id":"custom","name":"弹力带训练","unit":"MINUTES"}
+        ]""").putString("workout.records", """[
+            {"id":"old","at":${now.toInstant().toEpochMilli()},"projectId":"arm","type":"速臂器锻炼","unit":"REPETITIONS","amount":"30"}
+        ]""").commit()
+        assertEquals(listOf("arm", "custom"), store.workoutProjects().map { it.id })
+        assertEquals("arm", store.workoutGoals().single().id)
+        assertTrue(now.toLocalDate() in store.workoutBlocked(now.zone))
+        val reopened = ReminderStore(RuntimeEnvironment.getApplication())
+        assertEquals(store.workoutProjects(), reopened.workoutProjects())
+        assertEquals("arm", reopened.workoutRecords(now.zone).single().projectId)
     }
 
     @Test fun savingOneReminderDoesNotOverwriteOtherSettingsOrSnooze() {
