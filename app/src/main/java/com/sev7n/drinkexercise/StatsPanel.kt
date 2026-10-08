@@ -35,6 +35,9 @@ class StatsPanel(context: Context, private val accent: Int, key: String, private
         this.period = period
         this.anchor = anchor.coerceAtMost(LocalDate.now())
     }
+    fun setFilter(view: View) {
+        addView(view, 2, LayoutParams(LayoutParams.MATCH_PARENT, (48 * dp).toInt()))
+    }
     init {
         orientation = VERTICAL
         val row = LinearLayout(context)

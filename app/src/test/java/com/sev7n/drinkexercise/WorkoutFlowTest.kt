@@ -176,7 +176,18 @@ class WorkoutFlowTest {
         assertNotNull(saved.projectId)
         assertTrue(store.workoutGoals().isEmpty())
         assertEquals(View.VISIBLE, root.findViewWithTag<WeekChart>("workout.chart").visibility)
+        assertTrue(root.findViewWithTag<WeekChart>("workout.chart").contentDescription.contains("1 条记录"))
+        val panel = root.findViewWithTag<StatsPanel>("workout.statistics")
+        panel.findViewWithTag<Button>("stats.period.MONTH").performClick()
+        val filter = root.findViewWithTag<Spinner>("workout.stats.selector")
+        filter.setSelection(1)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(StatsPeriod.MONTH, panel.period)
         assertTrue(root.findViewWithTag<WeekChart>("workout.chart").contentDescription.contains("45 秒"))
+        filter.setSelection(0)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(StatsPeriod.MONTH, panel.period)
+        assertTrue(root.findViewWithTag<WeekChart>("workout.chart").contentDescription.contains("1 条记录"))
     }
 
     @Test fun freeTypedRecordDoesNotCreateCustomChoice() {

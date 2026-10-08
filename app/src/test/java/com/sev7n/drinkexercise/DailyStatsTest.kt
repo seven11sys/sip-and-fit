@@ -56,6 +56,18 @@ class DailyStatsTest {
         assertEquals(jan.minusDays(7), StatsPeriod.WEEK.move(jan,-1))
     }
 
+    @Test fun allWorkoutsCountsRecordsWithoutAddingIncompatibleAmounts() {
+        val records = listOf(record("run", "跑步", WorkoutUnit.KILOMETERS, "5"),
+            record("plank", "平板支撑", WorkoutUnit.SECONDS, "90"),
+            record(null, "俯卧撑", WorkoutUnit.REPETITIONS, "20", now.minusDays(1)),
+            record("run", "跑步", WorkoutUnit.KILOMETERS, "3", now.minusMonths(1)),
+            record("run", "跑步", WorkoutUnit.KILOMETERS, "10", now.plusDays(1)))
+        val days = DailyStats.workoutAll(now.toLocalDate(), now.zone, records, StatsPeriod.MONTH)
+        assertEquals(BigDecimal("2"), days.first { it.day == now.toLocalDate() }.amount)
+        assertEquals(BigDecimal("3"), days.sumOf { it.amount })
+        assertEquals(2, days.count { it.amount > BigDecimal.ZERO })
+    }
+
     @Test fun waterWeekIncludesTodayAndZeroDaysButExcludesOutsideDates() {
         val records = listOf(WaterRecord("a", now.minusDays(6), 100), WaterRecord("b", now, 250),
             WaterRecord("c", now.plusHours(1), 300), WaterRecord("old", now.minusDays(7), 500), WaterRecord("future", now.plusDays(1), 200))

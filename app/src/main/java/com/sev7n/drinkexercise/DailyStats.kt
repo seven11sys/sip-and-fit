@@ -68,4 +68,9 @@ object DailyStats {
 
     fun months(days: List<DailyAmount>): List<DailyAmount> = days.groupBy { it.day.withDayOfMonth(1) }
         .map { (month, values) -> DailyAmount(month, values.fold(BigDecimal.ZERO) { sum, day -> sum + day.amount }) }
+
+    fun workoutAll(today: LocalDate, zone: ZoneId, records: List<WorkoutRecord>, period: StatsPeriod = StatsPeriod.WEEK, anchor: LocalDate = today): List<DailyAmount> {
+        val byDay = records.groupBy { it.at.withZoneSameInstant(zone).toLocalDate() }
+        return days(today, period, anchor) { day -> BigDecimal(byDay[day].orEmpty().size) }
+    }
 }

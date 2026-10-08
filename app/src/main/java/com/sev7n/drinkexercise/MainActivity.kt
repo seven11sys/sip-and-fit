@@ -259,9 +259,9 @@ class MainActivity : Activity() {
         workoutHistory = card(12).apply { tag = "workout.history"; add(this) }
         heading("运动统计")
         val stats = card()
-        statsSelector = Spinner(this).apply { tag = "workout.stats.selector" }
-        stats.addView(statsSelector, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))
+        statsSelector = Spinner(this).apply { tag = "workout.stats.selector"; contentDescription = "筛选运动项目" }
         workoutStatistics = StatsPanel(this, AppUi.green, "workout") { renderStats(ZonedDateTime.now()) }.apply { tag = "workout.statistics" }
+        workoutStatistics.setFilter(statsSelector)
         stats.addView(workoutStatistics)
         add(stats)
     }
@@ -725,10 +725,17 @@ class MainActivity : Activity() {
             return
         }
         statsSelector.visibility = View.VISIBLE
-        statsSelector.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, choices.map { it.label })
-        val selected = choices.indexOfFirst { it.key == selectedSeries }.coerceAtLeast(0)
+        statsSelector.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("全部运动 · 记录条数") + choices.map { it.label })
+        val selected = (choices.indexOfFirst { it.key == selectedSeries } + 1).coerceAtLeast(0)
         fun display(index: Int) {
-            val choice = choices[index]
+            if (index == 0) {
+                selectedSeries = null
+                val days = DailyStats.workoutAll(today, now.zone, records, workoutStatistics.period, workoutStatistics.anchor)
+                workoutStatistics.show(days, "条记录", today = today)
+                return
+            }
+            val choice = choices[index - 1]
             selectedSeries = choice.key
             val days = DailyStats.workout(today, now.zone, choice, records, workoutStatistics.period, workoutStatistics.anchor)
             workoutStatistics.show(days, choice.unit.label, today = today)
@@ -736,7 +743,7 @@ class MainActivity : Activity() {
         statsSelector.setSelection(selected)
         display(selected)
         statsSelector.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { if (position in choices.indices) display(position) }
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { if (position in 0..choices.size) display(position) }
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
     }
