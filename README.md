@@ -29,7 +29,8 @@ APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
 ## 当前限制与验证
 
 - 使用临时 JDK 17、Kotlin 2.1.20 和 Android SDK 35 完成全部 Kotlin 源码编译检查。
-- 独立运行 JUnit 提醒规则测试：16 项全部通过。完整 Gradle 构建、lint 和真机验证需分别确认。
+- 独立运行 JUnit 提醒规则测试：16 项全部通过。
+- 完整 Gradle 构建在下载 `gradle-settings-api:8.9.2` 时因 TLS 握手失败而中断，未生成 APK、未完成 lint；尚未进行真机验证。
 - 已配置 GitHub Actions，在推送后运行测试、构建和 lint，通过后提供 debug APK 下载。
 - 需要真机验证：通知允许/拒绝、精确定时允许/拒绝、锁屏省电、手机重启、时区修改、快捷操作、关闭提醒。
 - Android 系统和厂商的省电策略可能延迟提醒；强行停止应用后，需再次打开应用恢复安排。
