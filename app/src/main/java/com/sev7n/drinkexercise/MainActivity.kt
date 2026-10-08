@@ -104,12 +104,12 @@ class MainActivity : Activity() {
         button("今天跳过健身") {
             store.skipWorkout(ZonedDateTime.now())
             ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
-            refresh()
+            refresh(ReminderScheduler.WORKOUT)
         }
         button("撤回今日跳过") {
             val now = ZonedDateTime.now()
             store.resetWorkout(now.toLocalDate(), now.zone)
-            refresh()
+            refresh(ReminderScheduler.WORKOUT)
         }
         heading("最近记录")
         label("点记录旁的“撤回”可纠正误点，包括从通知栏添加的记录。")
@@ -151,6 +151,19 @@ class MainActivity : Activity() {
                     android.net.Uri.parse("package:$packageName")))
             } else Toast.makeText(this, "已允许准时提醒", Toast.LENGTH_SHORT).show()
         }
+        button("通知类别设置（声音／悬浮通知）") {
+            startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, ReminderScheduler.channelId()))
+        }
+        button("应用系统设置（后台／电量管理）") {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:$packageName")))
+        }
+        button("立即测试喝水通知") { testNotification(ReminderScheduler.WATER, false) }
+        button("立即测试健身通知") { testNotification(ReminderScheduler.WORKOUT, false) }
+        button("1 分钟后测试喝水通知") { testNotification(ReminderScheduler.WATER, true) }
+        button("1 分钟后测试健身通知") { testNotification(ReminderScheduler.WORKOUT, true) }
         label("未开启准时提醒权限时，提醒可能延迟。手机省电设置也会影响通知。首次使用请开启需要的提醒和通知。")
         ready = true
         listOf(waterEnabled, pauseEnabled, stopAtGoal).forEach { it.setOnCheckedChangeListener { _, _ -> saveWater() } }
@@ -195,15 +208,23 @@ class MainActivity : Activity() {
     private fun recordWater(ml: Int) {
         store.recordWater(ml, ZonedDateTime.now())
         ReminderScheduler.dismiss(this, ReminderScheduler.WATER)
-        refresh()
+        refresh(ReminderScheduler.WATER)
     }
 
-    private fun refresh() {
-        ReminderScheduler.refresh(this)
+    private fun testNotification(kind: String, delayed: Boolean) {
+        val sent = if (delayed) ReminderScheduler.scheduleTest(this, kind) != null else ReminderScheduler.testNotification(this, kind)
+        refresh()
+        Toast.makeText(this, if (!sent) ReminderScheduler.notificationBlockReason(this) ?: "通知发送失败"
+            else if (delayed) "已安排测试，请退到桌面等待" else "测试已发送，请查看通知栏", Toast.LENGTH_LONG).show()
+    }
+
+    private fun refresh(vararg changed: String) {
+        ReminderScheduler.refresh(this, recalculate = changed.toSet())
         val now = ZonedDateTime.now()
         fun next(kind: String) = store.timestamp("$kind.scheduled", now.zone)?.format(formatter) ?: "未安排"
         status.text = "今日喝水 ${store.totalWater(now)} / ${store.water().goalMl} 毫升\n${store.workoutStatus(now.toLocalDate(), now.zone)}\n\n下次喝水提醒：${next("water")}\n下次健身提醒：${next("workout")}"
-        permissionStatus.text = "通知：${if (ReminderScheduler.notificationsAllowed(this)) "已开启" else "未开启"}\n准时提醒：${if (ReminderScheduler.preciseAllowed(this)) "已允许" else "未允许，使用可能延迟的提醒"}"
+        fun last(kind: String, key: String) = store.timestamp("$kind.$key", now.zone)?.format(DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")) ?: "无"
+        permissionStatus.text = "通知：${ReminderScheduler.notificationBlockReason(this) ?: "已开启"}\n${ReminderScheduler.notificationStyle(this)}\n准时提醒：${if (ReminderScheduler.preciseAllowed(this)) "已允许" else "未允许，使用可能延迟的提醒"}\n\n喝水：${store.diagnostic("water")}\n上次触发：${last("water", "received")}；上次提交通知：${last("water", "sent")}\n健身：${store.diagnostic("workout")}\n上次触发：${last("workout", "received")}；上次提交通知：${last("workout", "sent")}"
         renderHistory(now)
         renderProjects(now)
     }
@@ -217,7 +238,7 @@ class MainActivity : Activity() {
             waterSaveStatus.text = "$message；仍使用上次有效设置"
             // Turning reminders off always takes effect, even during an unfinished edit.
             if (!waterEnabled.isChecked && store.water().enabled) {
-                store.saveWater(store.water().copy(enabled = false)); refresh()
+                store.saveWater(store.water().copy(enabled = false)); refresh(ReminderScheduler.WATER)
             }
         }
         if (minutes == null || minutes !in 15..720) { interval.error = "请输入 15—720 分钟"; invalid("间隔无效"); return }
@@ -237,7 +258,7 @@ class MainActivity : Activity() {
         if (settings != store.water()) {
             store.saveWater(settings)
             ReminderScheduler.dismiss(this, ReminderScheduler.WATER)
-            refresh()
+            refresh(ReminderScheduler.WATER)
         }
         waterSaveStatus.text = "喝水设置已自动保存"
     }
@@ -250,13 +271,13 @@ class MainActivity : Activity() {
             // An empty week pauses reminders instead of silently retaining old days.
             store.saveWorkout(settings.copy(enabled = false))
             workoutSaveStatus.text = "请选择至少一天；健身提醒已暂停"
-            refresh()
+            refresh(ReminderScheduler.WORKOUT)
             return
         }
         if (settings != store.workout()) {
             store.saveWorkout(settings)
             ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
-            refresh()
+            refresh(ReminderScheduler.WORKOUT)
         }
         workoutSaveStatus.text = "健身设置已自动保存"
     }
@@ -298,7 +319,7 @@ class MainActivity : Activity() {
                         store.saveGoal(WorkoutGoal(existing?.id ?: UUID.randomUUID().toString(), title, selected,
                             if (hasTarget.isChecked) value else null))
                         ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
-                        refresh(); dialog.dismiss()
+                        refresh(ReminderScheduler.WORKOUT); dialog.dismiss()
                     }
                 }
             }
@@ -323,7 +344,7 @@ class MainActivity : Activity() {
                     else -> {
                         store.recordWorkout(goal, selected, value, ZonedDateTime.now())
                         ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
-                        refresh()
+                        refresh(ReminderScheduler.WORKOUT)
                         dialog.dismiss()
                     }
                 }
@@ -349,7 +370,7 @@ class MainActivity : Activity() {
                 AlertDialog.Builder(this).setTitle("移除 ${goal.name}？")
                     .setMessage("项目和目标将移除，已有运动记录会保留。")
                     .setNegativeButton("取消", null).setPositiveButton("移除") { _, _ ->
-                        store.deleteGoal(goal.id); refresh()
+                        store.deleteGoal(goal.id); refresh(ReminderScheduler.WORKOUT)
                     }.show()
                 Unit
             }).forEach { (title, action) ->
@@ -368,14 +389,14 @@ class MainActivity : Activity() {
             rows.add(record.at to ("喝水 ${record.ml} 毫升" to {
                 store.deleteWater(record.id)
                 ReminderScheduler.dismiss(this, ReminderScheduler.WATER)
-                refresh()
+                refresh(ReminderScheduler.WATER)
             }))
         }
         store.workoutRecords(now.zone).forEach { record ->
             rows.add(record.at to ("${record.type} ${WorkoutGoals.display(record.amount)} ${record.unit.label}" to {
                 store.deleteWorkout(record.id, now.zone)
                 ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
-                refresh()
+                refresh(ReminderScheduler.WORKOUT)
             }))
         }
         if (rows.isEmpty()) history.addView(TextView(this).apply { text = "还没有记录" })

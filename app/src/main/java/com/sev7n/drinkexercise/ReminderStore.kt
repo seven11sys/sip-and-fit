@@ -239,6 +239,10 @@ class ReminderStore(context: Context) {
     }
 
     fun clearTimestamp(key: String) { prefs.edit().remove(key).commit() }
+    fun setDiagnostic(kind: String, message: String) { prefs.edit().putString("$kind.diagnostic", message).commit() }
+    fun diagnostic(kind: String): String = prefs.getString("$kind.diagnostic", "尚未触发")!!
+    fun alarmMode(kind: String): String? = prefs.getString("$kind.alarmMode", null)
+    fun setAlarmMode(kind: String, mode: String) { prefs.edit().putString("$kind.alarmMode", mode).commit() }
     private fun time(key: String, default: String) = LocalTime.parse(prefs.getString(key, default))
     private fun dates(key: String) = prefs.getStringSet(key, emptySet())!!.map { LocalDate.parse(it) }.toSet()
 }
