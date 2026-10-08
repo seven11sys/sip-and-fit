@@ -16,6 +16,7 @@ import android.widget.EditText
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.Duration
+import java.math.BigDecimal
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
@@ -55,26 +56,59 @@ class ReminderStoreTest {
         assertEquals(0, store.totalWater(now))
     }
 
-    @Test fun workoutCompletionAndSkipCanBeReversed() {
-        store.markWorkout(now, true)
-        store.markWorkout(now, false)
-        assertEquals("今日健身已跳过", store.workoutStatus(now.toLocalDate()))
+    @Test fun workoutSkipCanBeReversedWithoutCreatingCompletion() {
+        store.skipWorkout(now)
+        assertEquals("今日健身已跳过", store.workoutStatus(now.toLocalDate(), now.zone))
         store.setTimestamp("workout.notified", now)
         store.resetWorkout(now.toLocalDate(), now.zone)
-        assertFalse(now.toLocalDate() in store.workoutBlocked())
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
         assertNull(store.timestamp("workout.notified", now.zone))
     }
 
     @Test fun removingLastWorkoutReopensTodayWithoutDeletingOtherDays() {
-        store.recordWorkout("跑步", 30, now.minusDays(1))
-        store.recordWorkout("力量训练", 45, now)
-        store.recordWorkout("拉伸", 10, now.plusMinutes(1))
+        val goal = WorkoutGoal("test", "力量训练", WorkoutUnit.MINUTES, BigDecimal("30"))
+        store.saveGoal(goal)
+        store.recordWorkout(goal, WorkoutUnit.MINUTES, BigDecimal("30"), now.minusDays(1))
+        store.recordWorkout(goal, WorkoutUnit.MINUTES, BigDecimal("30"), now)
+        store.recordWorkout(goal, WorkoutUnit.MINUTES, BigDecimal("10"), now.plusMinutes(1))
         store.deleteWorkout(store.workoutRecords(now.zone).first().id, now.zone)
-        assertTrue(now.toLocalDate() in store.workoutBlocked())
+        assertTrue(now.toLocalDate() in store.workoutBlocked(now.zone))
         store.deleteWorkout(store.workoutRecords(now.zone).first().id, now.zone)
-        assertFalse(now.toLocalDate() in store.workoutBlocked())
-        assertEquals("跑步", store.workoutRecords(now.zone).single().type)
-        assertEquals(30, store.workoutRecords(now.zone).single().minutes)
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+        assertEquals("力量训练", store.workoutRecords(now.zone).single().type)
+        assertEquals(BigDecimal("30"), store.workoutRecords(now.zone).single().amount)
+    }
+
+    @Test fun onlyAllGoalsReachedBlockReminderAndUndoRestoresIt() {
+        val arm = WorkoutGoal("arm", "速臂器锻炼", WorkoutUnit.REPETITIONS, BigDecimal("30"))
+        val plank = WorkoutGoal("plank", "变式平板支撑", WorkoutUnit.SECONDS, BigDecimal("90"))
+        store.saveGoal(arm); store.saveGoal(plank)
+        store.recordWorkout(arm, WorkoutUnit.REPETITIONS, BigDecimal("30"), now)
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+        store.recordWorkout(plank, WorkoutUnit.SECONDS, BigDecimal("60"), now.plusMinutes(1))
+        store.recordWorkout(plank, WorkoutUnit.SECONDS, BigDecimal("30"), now.plusMinutes(2))
+        assertTrue(now.toLocalDate() in store.workoutBlocked(now.zone))
+        store.deleteWorkout(store.workoutRecords(now.zone).first().id, now.zone)
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+    }
+
+    @Test fun removingProjectKeepsItsRecordsAndDoesNotReseedPresets() {
+        val goal = store.workoutGoals().first()
+        store.recordWorkout(goal, goal.unit, BigDecimal.ONE, now)
+        store.workoutGoals().forEach { store.deleteGoal(it.id) }
+        assertTrue(store.workoutGoals().isEmpty())
+        assertEquals(1, store.workoutRecords(now.zone).size)
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+    }
+
+    @Test fun oldTimeRecordsAndManualCompletionDoNotFakeGoalCompletion() {
+        RuntimeEnvironment.getApplication().getSharedPreferences("reminders", Context.MODE_PRIVATE).edit()
+            .putString("workout.records", "[{\"at\":${now.toInstant().toEpochMilli()},\"type\":\"跑步\",\"minutes\":30}]")
+            .putStringSet("workout.completed", setOf(now.toLocalDate().toString())).commit()
+        val record = store.workoutRecords(now.zone).single()
+        assertEquals(WorkoutUnit.MINUTES, record.unit)
+        assertEquals(BigDecimal("30"), record.amount)
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
     }
 
     @Test fun savingOneReminderDoesNotOverwriteOtherSettingsOrSnooze() {

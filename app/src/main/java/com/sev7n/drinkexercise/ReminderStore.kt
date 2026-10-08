@@ -10,9 +10,9 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.UUID
+import java.math.BigDecimal
 
 data class WaterRecord(val id: String, val at: ZonedDateTime, val ml: Int)
-data class WorkoutRecord(val id: String, val at: ZonedDateTime, val type: String, val minutes: Int)
 
 class ReminderStore(context: Context) {
     private val prefs = context.getSharedPreferences("reminders", Context.MODE_PRIVATE)
@@ -102,31 +102,42 @@ class ReminderStore(context: Context) {
         }
     }
 
-    fun markWorkout(now: ZonedDateTime, completed: Boolean) {
-        val key = if (completed) "workout.completed" else "workout.skipped"
-        val opposite = if (completed) "workout.skipped" else "workout.completed"
-        prefs.edit().putStringSet(key, prefs.getStringSet(key, emptySet())!! + now.toLocalDate().toString())
-            .putStringSet(opposite, prefs.getStringSet(opposite, emptySet())!! - now.toLocalDate().toString())
+    fun skipWorkout(now: ZonedDateTime) {
+        prefs.edit().putStringSet("workout.skipped", prefs.getStringSet("workout.skipped", emptySet())!! + now.toLocalDate().toString())
             .remove("workout.snooze").commit()
     }
 
-    fun recordWorkout(type: String, minutes: Int, now: ZonedDateTime) {
-        require(type.isNotBlank() && type.length <= 40)
-        require(minutes in 1..1440)
+    fun recordWorkout(goal: WorkoutGoal, unit: WorkoutUnit, amount: BigDecimal, now: ZonedDateTime) {
+        require(WorkoutGoals.validAmount(amount, unit))
+        require(workoutGoals().any { it.id == goal.id })
         val array = records("workout.records")
         array.put(JSONObject().put("id", UUID.randomUUID().toString())
-            .put("at", now.toInstant().toEpochMilli()).put("type", type.trim()).put("minutes", minutes))
-        prefs.edit().putString("workout.records", array.toString()).commit()
-        markWorkout(now, true)
+            .put("at", now.toInstant().toEpochMilli()).put("projectId", goal.id)
+            .put("type", goal.name).put("unit", unit.name).put("amount", amount.toPlainString()))
+        prefs.edit().putString("workout.records", array.toString())
+            .putStringSet("workout.skipped", prefs.getStringSet("workout.skipped", emptySet())!! - now.toLocalDate().toString())
+            .remove("workout.snooze").commit()
     }
 
     fun workoutRecords(zone: ZoneId): List<WorkoutRecord> {
         val array = records("workout.records")
-        return (0 until array.length()).map {
+        var migrated = false
+        val goals = workoutGoals()
+        val result = (0 until array.length()).map {
             val row = array.getJSONObject(it)
+            val old = !row.has("unit")
+            if (old) {
+                row.put("unit", WorkoutUnit.MINUTES.name).put("amount", row.getInt("minutes").toString())
+                goals.firstOrNull { it.name == row.getString("type") }?.let { goal -> row.put("projectId", goal.id) }
+                migrated = true
+            }
             WorkoutRecord(row.getString("id"), Instant.ofEpochMilli(row.getLong("at")).atZone(zone),
-                row.getString("type"), row.getInt("minutes"))
+                if (row.has("projectId")) row.getString("projectId") else null,
+                row.getString("type"), if (old) WorkoutUnit.MINUTES else WorkoutUnit.valueOf(row.getString("unit")),
+                if (old) BigDecimal(row.getInt("minutes")) else BigDecimal(row.getString("amount")))
         }.sortedByDescending { it.at.toInstant() }
+        if (migrated) prefs.edit().putString("workout.records", array.toString()).commit()
+        return result
     }
 
     fun deleteWorkout(id: String, zone: ZoneId): Boolean {
@@ -140,7 +151,7 @@ class ReminderStore(context: Context) {
         }
         val day = removedDay ?: return false
         prefs.edit().putString("workout.records", remaining.toString()).commit()
-        if (workoutRecords(zone).none { it.at.toLocalDate() == day }) resetWorkout(day, zone)
+        resetWorkout(day, zone)
         return true
     }
 
@@ -151,11 +162,44 @@ class ReminderStore(context: Context) {
             .remove("workout.snooze")
         if (timestamp("workout.notified", zone)?.toLocalDate() == day) edit.remove("workout.notified")
         edit.commit()
-        // Detailed records continue to count as completed; deleting them is a separate action.
-        if (workoutRecords(zone).any { it.at.toLocalDate() == day }) {
-            prefs.edit().putStringSet("workout.completed", prefs.getStringSet("workout.completed", emptySet())!! + day.toString()).commit()
+    }
+
+    fun workoutGoals(): List<WorkoutGoal> {
+        if (!prefs.contains("workout.goals")) {
+            val presets = listOf("速臂器锻炼" to WorkoutUnit.REPETITIONS, "变式平板支撑" to WorkoutUnit.SECONDS,
+                "俯卧撑" to WorkoutUnit.REPETITIONS, "深蹲" to WorkoutUnit.REPETITIONS,
+                "跑步" to WorkoutUnit.KILOMETERS, "骑行" to WorkoutUnit.KILOMETERS, "拉伸" to WorkoutUnit.MINUTES)
+            val array = JSONArray()
+            presets.forEach { (name, unit) -> array.put(goalJson(WorkoutGoal(UUID.randomUUID().toString(), name, unit, null))) }
+            prefs.edit().putString("workout.goals", array.toString()).commit()
+        }
+        val array = JSONArray(prefs.getString("workout.goals", "[]"))
+        return (0 until array.length()).map {
+            val row = array.getJSONObject(it)
+            WorkoutGoal(row.getString("id"), row.getString("name"), WorkoutUnit.valueOf(row.getString("unit")),
+                if (row.has("target")) BigDecimal(row.getString("target")) else null)
         }
     }
+
+    fun saveGoal(goal: WorkoutGoal) {
+        require(goal.name.isNotBlank() && goal.name.length <= 40)
+        require(goal.target == null || WorkoutGoals.validAmount(goal.target, goal.unit))
+        val all = workoutGoals().toMutableList()
+        val index = all.indexOfFirst { it.id == goal.id }
+        if (index >= 0) all[index] = goal else all.add(goal)
+        val array = JSONArray()
+        all.forEach { array.put(goalJson(it)) }
+        prefs.edit().putString("workout.goals", array.toString()).remove("workout.notified").commit()
+    }
+
+    fun deleteGoal(id: String) {
+        val array = JSONArray()
+        workoutGoals().filter { it.id != id }.forEach { array.put(goalJson(it)) }
+        prefs.edit().putString("workout.goals", array.toString()).remove("workout.notified").commit()
+    }
+
+    private fun goalJson(goal: WorkoutGoal) = JSONObject().put("id", goal.id).put("name", goal.name).put("unit", goal.unit.name)
+        .apply { goal.target?.let { put("target", it.toPlainString()) } }
 
     private fun records(key: String): JSONArray {
         val array = JSONArray(prefs.getString(key, "[]"))
@@ -168,11 +212,21 @@ class ReminderStore(context: Context) {
         return array
     }
 
-    fun workoutBlocked() = (dates("workout.completed") + dates("workout.skipped"))
-    fun workoutStatus(day: LocalDate): String = when (day) {
-        in dates("workout.completed") -> "今日健身已完成"
-        in dates("workout.skipped") -> "今日健身已跳过"
-        else -> "今日健身尚未打卡"
+    fun workoutBlocked(zone: ZoneId = ZoneId.systemDefault()): Set<LocalDate> {
+        val all = workoutRecords(zone)
+        val completed = all.map { it.at.toLocalDate() }.toSet().filter { WorkoutGoals.complete(workoutGoals(), it, all) }
+        return dates("workout.skipped") + completed
+    }
+    fun workoutStatus(day: LocalDate, zone: ZoneId = ZoneId.systemDefault()): String {
+        val all = workoutRecords(zone)
+        val hasGoals = workoutGoals().any { it.target != null }
+        return when {
+            WorkoutGoals.complete(workoutGoals(), day, all) -> "今日健身目标已完成"
+            day in dates("workout.skipped") -> "今日健身已跳过"
+            all.any { it.at.toLocalDate() == day } -> if (hasGoals) "今日已记录运动，目标尚未全部达成" else "今日已记录运动，未设每日目标"
+            !hasGoals -> "尚未设置健身目标，可先记录运动"
+            else -> "今日健身目标尚未完成"
+        }
     }
 
     fun timestamp(key: String, zone: ZoneId): ZonedDateTime? =

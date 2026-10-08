@@ -118,7 +118,10 @@ object ReminderScheduler {
             .setContentTitle(if (kind == WATER) "休息一下，喝点水" else "到健身时间了")
             .setContentText(if (kind == WATER) "按需补水，也可以稍后提醒。" else "准备开始今天的运动吧。")
             .setContentIntent(open).setAutoCancel(true)
-            .addAction(action(if (kind == WATER) "喝了 250 毫升" else "已完成", "record", id(kind) + 1))
+            .addAction(if (kind == WATER) action("喝了 250 毫升", "record", id(kind) + 1)
+                else android.app.Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_menu_edit),
+                    "记录运动", open).build())
             .addAction(action("稍后 15 分钟", "snooze", id(kind) + 2))
             .addAction(action(if (kind == WATER) "跳过本次" else "今天跳过", "skip", id(kind) + 3))
             .build()
@@ -150,12 +153,12 @@ class ReminderReceiver : BroadcastReceiver() {
             return
         }
         when (intent.action) {
-            "record" -> if (kind == ReminderScheduler.WATER) store.recordWater(250, now) else store.markWorkout(now, true)
+            "record" -> if (kind == ReminderScheduler.WATER) store.recordWater(250, now)
             "snooze" -> {
                 val until = now.plusMinutes(15)
                 if (until.toLocalDate() == now.toLocalDate()) store.setTimestamp("$kind.snooze", until)
             }
-            "skip" -> if (kind == ReminderScheduler.WORKOUT) store.markWorkout(now, false)
+            "skip" -> if (kind == ReminderScheduler.WORKOUT) store.skipWorkout(now)
         }
         ReminderScheduler.refresh(context)
     }

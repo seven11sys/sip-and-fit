@@ -21,6 +21,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import java.math.BigDecimal
+import java.util.UUID
 import java.time.DayOfWeek
 import java.time.LocalTime
 import java.time.ZonedDateTime
@@ -45,6 +49,7 @@ class MainActivity : Activity() {
     private lateinit var waterSaveStatus: TextView
     private lateinit var workoutSaveStatus: TextView
     private lateinit var history: LinearLayout
+    private lateinit var projects: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private var ready = false
     private val saveWaterTask = Runnable { saveWater() }
@@ -92,25 +97,19 @@ class MainActivity : Activity() {
             }
             dialog.show()
         }
-        button("完成今日健身") {
-            store.markWorkout(ZonedDateTime.now(), true)
-            ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
-            refresh()
-        }
-        button("记录健身类型和时长") { recordWorkoutDialog() }
+        heading("运动项目与每日目标")
+        label("选择目标方式和目标值；各项目分别累计，所有已设目标的项目达标后自动完成。未设目标的项目也能记录。")
+        projects = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; add(this) }
+        button("添加自定义运动") { editGoalDialog(null) }
         button("今天跳过健身") {
-            store.markWorkout(ZonedDateTime.now(), false)
+            store.skipWorkout(ZonedDateTime.now())
             ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
             refresh()
         }
-        button("撤回今日健身完成／跳过") {
+        button("撤回今日跳过") {
             val now = ZonedDateTime.now()
-            if (store.workoutRecords(now.zone).any { it.at.toLocalDate() == now.toLocalDate() }) {
-                Toast.makeText(this, "当天有健身记录，请在记录列表中逐条撤回", Toast.LENGTH_LONG).show()
-            } else {
-                store.resetWorkout(now.toLocalDate(), now.zone)
-                refresh()
-            }
+            store.resetWorkout(now.toLocalDate(), now.zone)
+            refresh()
         }
         heading("最近记录")
         label("点记录旁的“撤回”可纠正误点，包括从通知栏添加的记录。")
@@ -134,7 +133,7 @@ class MainActivity : Activity() {
         workoutTime = timeButton("固定时间", workout.time)
         val names = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
         DayOfWeek.entries.forEachIndexed { index, day -> dayChecks[day] = check(names[index], day in workout.days) }
-        label("每天最多一次正常提醒。完成或跳过后，当天不再提醒；可从通知延后 15 分钟。")
+        label("每天最多一次正常提醒。全部目标达成或跳过后，当天不再提醒；可从通知延后 15 分钟。")
         workoutSaveStatus = label("设置会自动保存")
 
         heading("提醒权限")
@@ -203,9 +202,10 @@ class MainActivity : Activity() {
         ReminderScheduler.refresh(this)
         val now = ZonedDateTime.now()
         fun next(kind: String) = store.timestamp("$kind.scheduled", now.zone)?.format(formatter) ?: "未安排"
-        status.text = "今日喝水 ${store.totalWater(now)} / ${store.water().goalMl} 毫升\n${store.workoutStatus(now.toLocalDate())}\n\n下次喝水提醒：${next("water")}\n下次健身提醒：${next("workout")}"
+        status.text = "今日喝水 ${store.totalWater(now)} / ${store.water().goalMl} 毫升\n${store.workoutStatus(now.toLocalDate(), now.zone)}\n\n下次喝水提醒：${next("water")}\n下次健身提醒：${next("workout")}"
         permissionStatus.text = "通知：${if (ReminderScheduler.notificationsAllowed(this)) "已开启" else "未开启"}\n准时提醒：${if (ReminderScheduler.preciseAllowed(this)) "已允许" else "未允许，使用可能延迟的提醒"}"
         renderHistory(now)
+        renderProjects(now)
     }
 
     private fun saveWater() {
@@ -261,23 +261,67 @@ class MainActivity : Activity() {
         workoutSaveStatus.text = "健身设置已自动保存"
     }
 
-    private fun recordWorkoutDialog() {
+    private fun unitSelector(initial: WorkoutUnit) = Spinner(this).apply {
+        adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+            WorkoutUnit.entries.map { it.choice })
+        setSelection(initial.ordinal)
+    }
+
+    private fun amountInput(hint: String) = EditText(this).apply {
+        this.hint = hint
+        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+    }
+
+    private fun editGoalDialog(existing: WorkoutGoal?) {
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), 0, dp(24), 0) }
-        val type = EditText(this).apply { hint = "运动类型，例如力量训练、跑步"; setSingleLine(true) }
-        val minutes = EditText(this).apply { hint = "运动时长（分钟）"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
-        fields.addView(type)
-        fields.addView(minutes)
-        val dialog = AlertDialog.Builder(this).setTitle("记录健身").setView(fields)
-            .setNegativeButton("取消", null).setPositiveButton("记录并完成", null).create()
+        val name = EditText(this).apply { hint = "运动名称"; setSingleLine(true); setText(existing?.name ?: "") }
+        val unit = unitSelector(existing?.unit ?: WorkoutUnit.REPETITIONS)
+        val hasTarget = CheckBox(this).apply { text = "设为每日目标"; isChecked = existing?.target != null }
+        val target = amountInput("每日目标值，按你自己的计划填写").apply {
+            existing?.target?.let { setText(WorkoutGoals.display(it)) }
+            isEnabled = hasTarget.isChecked
+        }
+        hasTarget.setOnCheckedChangeListener { _, checked -> target.isEnabled = checked }
+        fields.addView(name); fields.addView(unit); fields.addView(hasTarget); fields.addView(target)
+        fields.addView(TextView(this).apply { text = "次数须为整数；时长、距离最多保留 3 位小数。更换目标方式后，只累计同类单位的记录。" })
+        val dialog = AlertDialog.Builder(this).setTitle(if (existing == null) "添加运动项目" else "编辑项目和目标")
+            .setView(fields).setNegativeButton("取消", null).setPositiveButton("确定", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val name = type.text.toString().trim()
-                val duration = minutes.text.toString().toIntOrNull()
+                val title = name.text.toString().trim()
+                val selected = WorkoutUnit.entries[unit.selectedItemPosition]
+                val value = target.text.toString().toBigDecimalOrNull()
                 when {
-                    name.isEmpty() || name.length > 40 -> type.error = "请输入 1—40 字的运动类型"
-                    duration == null || duration !in 1..1440 -> minutes.error = "请输入 1—1440 分钟"
+                    title.isEmpty() || title.length > 40 -> name.error = "请输入 1—40 字的项目名称"
+                    hasTarget.isChecked && (value == null || !WorkoutGoals.validAmount(value, selected)) -> target.error = "请输入有效正数，次数须为整数"
                     else -> {
-                        store.recordWorkout(name, duration, ZonedDateTime.now())
+                        store.saveGoal(WorkoutGoal(existing?.id ?: UUID.randomUUID().toString(), title, selected,
+                            if (hasTarget.isChecked) value else null))
+                        ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
+                        refresh(); dialog.dismiss()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun recordWorkoutDialog(goal: WorkoutGoal) {
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), 0, dp(24), 0) }
+        val unit = unitSelector(goal.unit)
+        val amount = amountInput("本次实际完成量")
+        fields.addView(unit); fields.addView(amount)
+        fields.addView(TextView(this).apply { text = "每次记录会累计。单位与目标同类时计入进度，否则只保存记录。" })
+        val dialog = AlertDialog.Builder(this).setTitle("记录：${goal.name}").setView(fields)
+            .setNegativeButton("取消", null).setPositiveButton("记录", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selected = WorkoutUnit.entries[unit.selectedItemPosition]
+                val value = amount.text.toString().toBigDecimalOrNull()
+                when {
+                    value == null || !WorkoutGoals.validAmount(value, selected) -> amount.error = "请输入有效正数，次数须为整数"
+                    else -> {
+                        store.recordWorkout(goal, selected, value, ZonedDateTime.now())
                         ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
                         refresh()
                         dialog.dismiss()
@@ -286,6 +330,34 @@ class MainActivity : Activity() {
             }
         }
         dialog.show()
+    }
+
+    private fun renderProjects(now: ZonedDateTime) {
+        if (!::projects.isInitialized) return
+        projects.removeAllViews()
+        val records = store.workoutRecords(now.zone)
+        store.workoutGoals().forEach { goal ->
+            val progress = WorkoutGoals.progress(goal, now.toLocalDate(), records)
+            val target = goal.target
+            projects.addView(TextView(this).apply {
+                text = "${goal.name}\n${if (target == null) "未设每日目标，已记录 ${WorkoutGoals.display(progress)} ${goal.unit.label}"
+                else "${WorkoutGoals.display(progress)} / ${WorkoutGoals.display(target)} ${goal.unit.label}${if (progress >= target) " · 已达标" else ""}"}"
+                textSize = 16f; setPadding(0, dp(12), 0, dp(4))
+            })
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            listOf("记录" to { recordWorkoutDialog(goal) }, "目标" to { editGoalDialog(goal) }, "移除" to {
+                AlertDialog.Builder(this).setTitle("移除 ${goal.name}？")
+                    .setMessage("项目和目标将移除，已有运动记录会保留。")
+                    .setNegativeButton("取消", null).setPositiveButton("移除") { _, _ ->
+                        store.deleteGoal(goal.id); refresh()
+                    }.show()
+                Unit
+            }).forEach { (title, action) ->
+                actions.addView(Button(this).apply { text = title; setOnClickListener { action() } },
+                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            projects.addView(actions)
+        }
     }
 
     private fun renderHistory(now: ZonedDateTime) {
@@ -300,7 +372,7 @@ class MainActivity : Activity() {
             }))
         }
         store.workoutRecords(now.zone).forEach { record ->
-            rows.add(record.at to ("${record.type} ${record.minutes} 分钟" to {
+            rows.add(record.at to ("${record.type} ${WorkoutGoals.display(record.amount)} ${record.unit.label}" to {
                 store.deleteWorkout(record.id, now.zone)
                 ReminderScheduler.dismiss(this, ReminderScheduler.WORKOUT)
                 refresh()
