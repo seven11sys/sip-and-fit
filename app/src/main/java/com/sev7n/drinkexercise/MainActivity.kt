@@ -160,6 +160,7 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 android.net.Uri.parse("package:$packageName")))
         }
+        label("锁屏后才收不到：请在应用系统设置中检查应用省电。小米／红米可将应用省电设为“无限制”；仍收不到时再检查“后台自启动”。")
         button("立即测试喝水通知") { testNotification(ReminderScheduler.WATER, false) }
         button("立即测试健身通知") { testNotification(ReminderScheduler.WORKOUT, false) }
         button("1 分钟后测试喝水通知") { testNotification(ReminderScheduler.WATER, true) }
