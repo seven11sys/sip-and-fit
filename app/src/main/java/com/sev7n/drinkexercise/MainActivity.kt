@@ -339,6 +339,15 @@ class MainActivity : Activity() {
             .apply { text = "立即测试 · 锁屏测试 · 状态检查" }
         add(tests)
 
+        heading("关于应用")
+        val about = card()
+        about.addView(makeText("Sip & Fit · 喝水与健身", 16f, bold = true))
+        about.addView(makeText("当前版本 v${BuildConfig.VERSION_NAME}", 14f, AppUi.muted).apply {
+            tag = "setting.version"
+            setPadding(0, dp(8), 0, 0)
+        })
+        add(about)
+
         // Keep detail controls alive between openings so unsaved edits and validation messages remain visible.
         waterDetails = dialogFields(); content = waterDetails
         val water = store.water()
