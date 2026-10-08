@@ -11,7 +11,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.Shadows.shadowOf
 import android.os.Looper
-import android.widget.CheckBox
+import android.widget.CompoundButton
 import android.widget.EditText
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -188,10 +188,13 @@ class ReminderStoreTest {
 
     @Test fun invalidWaterInputDoesNotPreventWorkoutAutosave() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
-        val interval = activity.findViewById<android.view.View>(android.R.id.content).findViewWithTag<EditText>("water.interval")
+        activity.findViewById<android.view.View>(android.R.id.content).findViewWithTag<android.view.View>("setting.water").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        val dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+        val interval = dialog.window!!.decorView.findViewWithTag<EditText>("water.interval")
         interval.setText("")
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
-        val workout = activity.findViewById<android.view.View>(android.R.id.content).findViewWithTag<CheckBox>("workout.enabled")
+        val workout = activity.findViewById<android.view.View>(android.R.id.content).findViewWithTag<CompoundButton>("workout.enabled")
         workout.isChecked = true
         assertTrue(store.workout().enabled)
         assertEquals(90, store.water().intervalMinutes)

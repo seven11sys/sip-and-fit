@@ -60,21 +60,49 @@ class WorkoutFlowTest {
     @Test fun navigationKeepsRecordsAndMovesLibraryAndReminderControlsToSettings() {
         assertEquals(View.VISIBLE, root.findViewWithTag<View>("page.water").visibility)
         assertEquals(View.GONE, root.findViewWithTag<View>("page.workout").visibility)
-        click(root, "100 毫升")
+        click(root, "100 ml")
         click(root, "健身")
         assertEquals(View.VISIBLE, root.findViewWithTag<View>("page.workout").visibility)
         assertEquals(View.GONE, root.findViewWithTag<View>("page.water").visibility)
         assertTrue(views(root.findViewWithTag("page.workout")).filterIsInstance<Button>().none { it.text.toString().contains("自定义运动") })
         click(root, "设置")
         assertEquals(View.VISIBLE, root.findViewWithTag<View>("page.settings").visibility)
-        assertNotNull(root.findViewWithTag<View>("page.settings").findViewWithTag<View>("water.interval"))
+        assertNull(root.findViewWithTag<View>("page.settings").findViewWithTag<View>("water.interval"))
+        root.findViewWithTag<View>("setting.water").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNotNull(input(dialog(), "water.interval"))
+        confirm(dialog())
         click(root, "喝水")
         assertEquals(100, store.totalWater(ZonedDateTime.now()))
     }
 
+    @Test fun recordingAndUndoImmediatelyUpdateProgressAndWeeklyChart() {
+        click(root, "100 ml")
+        assertEquals(.05f, root.findViewWithTag<ProgressRing>("water.progress").fraction, .001f)
+        val chart = root.findViewWithTag<WeekChart>("water.chart")
+        assertTrue(chart.contentDescription.contains("100 毫升"))
+        click(root.findViewWithTag("water.history"), "撤回")
+        assertEquals(0f, root.findViewWithTag<ProgressRing>("water.progress").fraction, .001f)
+        assertFalse(chart.contentDescription.contains("100 毫升"))
+    }
+
+    @Test fun collapsedReminderDialogAutosavesAndKeepsValidSettingsOnReopen() {
+        click(root, "设置")
+        root.findViewWithTag<View>("setting.water").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        input(dialog(), "water.interval").setText("120")
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
+        assertEquals(120, store.water().intervalMinutes)
+        confirm(dialog())
+        root.findViewWithTag<View>("setting.water").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("120", input(dialog(), "water.interval").text.toString())
+    }
+
     @Test fun customChoiceThenGoalRecordsOnlyConfiguredAmountAndAccumulates() {
         click(root, "设置")
-        click(root, "添加自定义运动到项目库")
+        root.findViewWithTag<View>("setting.addProject").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
         val add = dialog()
         input(add, "project.name").setText("我的训练")
         assertNull(add.window!!.decorView.findViewWithTag<View>("goal.amount"))
@@ -109,7 +137,7 @@ class WorkoutFlowTest {
 
     @Test fun freeRecordSelectsPresetWithOwnMeasurementWithoutCreatingGoal() {
         click(root, "健身")
-        click(root, "记录其他运动（不设目标）")
+        click(root, "记录其他运动")
         val record = dialog()
         click(record.window!!.decorView, "从项目库选择（预设／自定义）")
         val choices = dialog()
@@ -123,11 +151,13 @@ class WorkoutFlowTest {
         assertEquals(WorkoutUnit.SECONDS, saved.unit)
         assertNotNull(saved.projectId)
         assertTrue(store.workoutGoals().isEmpty())
+        assertEquals(View.VISIBLE, root.findViewWithTag<WeekChart>("workout.chart").visibility)
+        assertTrue(root.findViewWithTag<WeekChart>("workout.chart").contentDescription.contains("45 秒"))
     }
 
     @Test fun freeTypedRecordDoesNotCreateCustomChoice() {
         click(root, "健身")
-        click(root, "记录其他运动（不设目标）")
+        click(root, "记录其他运动")
         val record = dialog()
         input(record, "record.name").setText("爬楼梯")
         unit(record, "record.unit").setSelection(WorkoutUnit.MINUTES.ordinal)
