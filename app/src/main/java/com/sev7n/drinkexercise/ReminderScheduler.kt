@@ -83,6 +83,7 @@ object ReminderScheduler {
         val onTime = scheduled.toLocalDate() == now.toLocalDate() && Duration.between(scheduled, now).toMinutes() <= 60
         val eligible = if (kind == WATER) {
             store.setTimestamp("water.anchor", now)
+            store.setTimestamp("water.lastReminder", now)
             ReminderRules.waterAllowed(now, store.water(), store.totalWater(now))
         } else {
             val settings = store.workout()
