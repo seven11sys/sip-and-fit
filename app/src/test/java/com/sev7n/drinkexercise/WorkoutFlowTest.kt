@@ -57,6 +57,30 @@ class WorkoutFlowTest {
         assertEquals(7, store.workoutProjects().size)
     }
 
+    @Test fun statisticsSwitchesPeriodsAndUndoUpdatesSelectedPeriod() {
+        click(root, "100 ml")
+        val panel = root.findViewWithTag<StatsPanel>("water.statistics")
+        panel.findViewWithTag<Button>("stats.period.YEAR").performClick()
+        assertEquals(StatsPeriod.YEAR, panel.period)
+        val map = panel.findViewWithTag<YearHeatmap>("water.heatmap")
+        assertEquals(View.VISIBLE, (map.parent as View).visibility)
+        panel.measure(View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1800, View.MeasureSpec.AT_MOST))
+        panel.layout(0, 0, 640, panel.measuredHeight)
+        assertTrue(map.width > 0)
+        assertTrue(map.contentDescription.contains("100 毫升"))
+        map.performClick()
+        assertTrue(dialog().findViewById<android.widget.TextView>(android.R.id.message).text.contains("100 毫升"))
+        dialog().dismiss()
+        panel.findViewWithTag<Button>("stats.period.MONTH").performClick()
+        assertEquals(StatsPeriod.MONTH, panel.period)
+        assertEquals(View.GONE, (map.parent as View).visibility)
+        val chart = panel.findViewWithTag<WeekChart>("water.chart")
+        assertTrue(chart.contentDescription.contains("100 毫升"))
+        click(root.findViewWithTag<LinearLayout>("water.history"), "撤回")
+        assertFalse(chart.contentDescription.contains("100 毫升"))
+    }
+
     @Test fun navigationKeepsRecordsAndMovesLibraryAndReminderControlsToSettings() {
         assertEquals(View.VISIBLE, root.findViewWithTag<View>("page.water").visibility)
         assertEquals(View.GONE, root.findViewWithTag<View>("page.workout").visibility)

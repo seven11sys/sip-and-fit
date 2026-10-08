@@ -49,11 +49,8 @@ class MainActivity : Activity() {
     private lateinit var waterCaption: TextView
     private lateinit var waterNext: TextView
     private lateinit var waterRing: ProgressRing
-    private lateinit var waterChart: WeekChart
-    private lateinit var waterStats: TextView
-    private lateinit var waterLegend: TextView
-    private lateinit var workoutChart: WeekChart
-    private lateinit var workoutStats: TextView
+    private lateinit var waterStatistics: StatsPanel
+    private lateinit var workoutStatistics: StatsPanel
     private lateinit var statsSelector: Spinner
     private var selectedSeries: String? = null
     private lateinit var waterDetails: LinearLayout
@@ -154,6 +151,14 @@ class MainActivity : Activity() {
         interval.tag = "water.interval"
         goal.tag = "water.goal"
         workoutEnabled.tag = "workout.enabled"
+        savedInstanceState?.let { state ->
+            listOf("water" to waterStatistics, "workout" to workoutStatistics).forEach { (key, panel) ->
+                state.getString("$key.stats.period")?.let { period ->
+                    panel.restore(StatsPeriod.valueOf(period), java.time.LocalDate.parse(state.getString("$key.stats.anchor")))
+                }
+            }
+            selectedSeries = state.getString("stats.series")
+        }
         selectPage(savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "water")
         refresh()
     }
@@ -216,14 +221,10 @@ class MainActivity : Activity() {
         }
         heading("最近记录")
         history = card(12).apply { tag = "water.history"; add(this) }
-        heading("近 7 天")
+        heading("饮水统计")
         val stats = card()
-        waterStats = makeText("", 14f, AppUi.muted)
-        stats.addView(waterStats)
-        waterChart = WeekChart(this, AppUi.blue).apply { tag = "water.chart" }
-        stats.addView(waterChart, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(172)))
-        waterLegend = makeText("", 12f, AppUi.muted)
-        stats.addView(waterLegend)
+        waterStatistics = StatsPanel(this, AppUi.blue, "water") { renderStats(ZonedDateTime.now()) }.apply { tag = "water.statistics" }
+        stats.addView(waterStatistics)
         add(stats)
     }
 
@@ -256,14 +257,12 @@ class MainActivity : Activity() {
         label("无需设置目标，也可以直接记录").apply { textSize = 13f; gravity = Gravity.CENTER }
         heading("最近记录")
         workoutHistory = card(12).apply { tag = "workout.history"; add(this) }
-        heading("近 7 天")
+        heading("运动统计")
         val stats = card()
         statsSelector = Spinner(this).apply { tag = "workout.stats.selector" }
         stats.addView(statsSelector, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))
-        workoutStats = makeText("", 14f, AppUi.muted)
-        stats.addView(workoutStats)
-        workoutChart = WeekChart(this, AppUi.green).apply { tag = "workout.chart" }
-        stats.addView(workoutChart, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(172)))
+        workoutStatistics = StatsPanel(this, AppUi.green, "workout") { renderStats(ZonedDateTime.now()) }.apply { tag = "workout.statistics" }
+        stats.addView(workoutStatistics)
         add(stats)
     }
 
@@ -403,6 +402,11 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", currentPage)
+        listOf("water" to waterStatistics, "workout" to workoutStatistics).forEach { (key, panel) ->
+            outState.putString("$key.stats.period", panel.period.name)
+            outState.putString("$key.stats.anchor", panel.anchor.toString())
+        }
+        outState.putString("stats.series", selectedSeries)
         super.onSaveInstanceState(outState)
     }
 
@@ -709,29 +713,25 @@ class MainActivity : Activity() {
     }
 
     private fun renderStats(now: ZonedDateTime) {
-        val waterDays = DailyStats.water(now.toLocalDate(), now.zone, store.waterRecords(now.zone))
-        val waterTotal = waterDays.fold(BigDecimal.ZERO) { sum, day -> sum + day.amount }
-        waterStats.text = "近 7 天共 ${WorkoutGoals.display(waterTotal)} 毫升"
-        waterLegend.text = "虚线：当前每日目标 ${store.water().goalMl} 毫升"
-        waterChart.show(waterDays, "毫升", BigDecimal(store.water().goalMl))
+        val today = now.toLocalDate()
+        val waterDays = DailyStats.water(today, now.zone, store.waterRecords(now.zone), waterStatistics.period, waterStatistics.anchor)
+        waterStatistics.show(waterDays, "毫升", BigDecimal(store.water().goalMl), today = today)
         val records = store.workoutRecords(now.zone)
         val choices = DailyStats.series(store.workoutGoals(), records)
         statsSelector.onItemSelectedListener = null
         if (choices.isEmpty()) {
-            statsSelector.visibility = View.GONE; workoutChart.visibility = View.GONE
-            workoutStats.text = "记录运动后，这里会显示近 7 天趋势。"
+            statsSelector.visibility = View.GONE
+            workoutStatistics.show(emptyList(), "", empty = true, today = today)
             return
         }
-        statsSelector.visibility = View.VISIBLE; workoutChart.visibility = View.VISIBLE
+        statsSelector.visibility = View.VISIBLE
         statsSelector.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, choices.map { it.label })
         val selected = choices.indexOfFirst { it.key == selectedSeries }.coerceAtLeast(0)
         fun display(index: Int) {
             val choice = choices[index]
             selectedSeries = choice.key
-            val days = DailyStats.workout(now.toLocalDate(), now.zone, choice, records)
-            val total = days.fold(BigDecimal.ZERO) { sum, day -> sum + day.amount }
-            workoutStats.text = "近 7 天共 ${WorkoutGoals.display(total)} ${choice.unit.label}"
-            workoutChart.show(days, choice.unit.label)
+            val days = DailyStats.workout(today, now.zone, choice, records, workoutStatistics.period, workoutStatistics.anchor)
+            workoutStatistics.show(days, choice.unit.label, today = today)
         }
         statsSelector.setSelection(selected)
         display(selected)
