@@ -29,6 +29,53 @@ class ReminderStoreTest {
         store = ReminderStore(RuntimeEnvironment.getApplication())
     }
 
+    @Test fun completeGoalFillsOnlyRemainingAmountAndCanBeUndone() {
+        val goal = WorkoutGoal("arm", "速臂器锻炼", WorkoutUnit.REPETITIONS, BigDecimal("30"))
+        store.saveGoal(goal)
+        store.recordWorkout(goal, goal.unit, BigDecimal("20"), now.minusMinutes(10))
+        assertTrue(store.completeWorkoutGoal(goal.id, now))
+        val records = store.workoutRecords(now.zone)
+        assertEquals(BigDecimal("10"), records.first().amount)
+        assertEquals("30", WorkoutGoals.display(WorkoutGoals.progress(goal, now.toLocalDate(), records)))
+        assertFalse(store.completeWorkoutGoal(goal.id, now))
+        assertEquals(2, store.workoutRecords(now.zone).size)
+        assertTrue(store.deleteWorkout(records.first().id, now.zone))
+        assertEquals("20", WorkoutGoals.display(WorkoutGoals.progress(goal, now.toLocalDate(), store.workoutRecords(now.zone))))
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+        assertTrue(store.completeWorkoutGoal(goal.id, now.plusDays(1)))
+        assertEquals(BigDecimal("30"), store.workoutRecords(now.zone).first().amount)
+    }
+
+    @Test fun completeGoalPreservesPrecisionWhenExistingUnitsDiffer() {
+        val goal = WorkoutGoal("plank", "平板支撑", WorkoutUnit.MINUTES, BigDecimal("1"))
+        store.saveGoal(goal)
+        store.recordWorkout(goal, WorkoutUnit.SECONDS, BigDecimal("0.001"), now.minusMinutes(1))
+        assertTrue(store.completeWorkoutGoal(goal.id, now))
+        val records = store.workoutRecords(now.zone)
+        assertEquals(WorkoutUnit.SECONDS, records.first().unit)
+        assertEquals(BigDecimal("59.999"), records.first().amount)
+        assertEquals(BigDecimal.ONE, WorkoutGoals.progress(goal, now.toLocalDate(), records))
+        assertFalse(store.completeWorkoutGoal(goal.id, now))
+        store.deleteGoal(goal.id)
+        assertFalse(store.completeWorkoutGoal(goal.id, now))
+    }
+
+    @Test fun completeOnlyCountsTodaysMatchingProjectAndDimension() {
+        val arm = WorkoutGoal("arm", "速臂器锻炼", WorkoutUnit.REPETITIONS, BigDecimal("30"))
+        val plank = WorkoutGoal("plank", "平板支撑", WorkoutUnit.SECONDS, BigDecimal("90"))
+        store.saveGoal(arm); store.saveGoal(plank)
+        store.recordWorkout(arm, arm.unit, BigDecimal("30"), now.minusDays(1))
+        store.recordWorkout(arm, WorkoutUnit.SECONDS, BigDecimal("100"), now.minusMinutes(10))
+        store.recordWorkout(plank, plank.unit, BigDecimal("60"), now.minusMinutes(5))
+        assertTrue(store.completeWorkoutGoal(arm.id, now))
+        val records = store.workoutRecords(now.zone)
+        assertEquals(BigDecimal("30"), records.first().amount)
+        assertEquals("60", WorkoutGoals.display(WorkoutGoals.progress(plank, now.toLocalDate(), records)))
+        assertFalse(now.toLocalDate() in store.workoutBlocked(now.zone))
+        assertTrue(store.completeWorkoutGoal(plank.id, now.plusSeconds(1)))
+        assertTrue(now.toLocalDate() in store.workoutBlocked(now.zone))
+    }
+
     @Test fun undoDrinkSurvivesReopeningAndRestoresInterval() {
         store.recordWater(100, now)
         store.recordWater(500, now.plusMinutes(10))

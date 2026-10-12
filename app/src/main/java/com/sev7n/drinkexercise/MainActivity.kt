@@ -713,10 +713,25 @@ class MainActivity : Activity() {
             item.addView(values)
             item.addView(GoalProgress(this, fraction).apply { contentDescription = "${goal.name}进度 ${(fraction * 100).toInt()}%" },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)).apply { bottomMargin = dp(14) })
-            item.addView(Button(this).apply {
-                text = "记录"; AppUi.button(this, AppUi.green, filled = true)
+            val actions = LinearLayout(this)
+            actions.addView(Button(this).apply {
+                text = "记录"; AppUi.button(this, AppUi.green, outline = true)
                 setOnClickListener { recordWorkoutDialog(goal) }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))
+            }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) })
+            actions.addView(Button(this).apply {
+                val complete = progress >= target
+                text = if (complete) "已完成" else "完成"
+                tag = "goal.complete.${goal.id}"
+                contentDescription = if (complete) "${goal.name}今日目标已完成" else "补足${goal.name}今日剩余目标"
+                AppUi.button(this, if (complete) AppUi.muted else AppUi.green, filled = !complete, outline = complete)
+                isEnabled = !complete
+                setOnClickListener {
+                    if (store.completeWorkoutGoal(goal.id, ZonedDateTime.now()))
+                        ReminderScheduler.dismiss(this@MainActivity, ReminderScheduler.WORKOUT)
+                    refresh(ReminderScheduler.WORKOUT)
+                }
+            }, LinearLayout.LayoutParams(0, dp(48), 1f))
+            item.addView(actions)
             projects.addView(item, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         }
     }

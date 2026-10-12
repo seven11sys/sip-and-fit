@@ -116,6 +116,30 @@ class ReminderStore(context: Context) {
         require(name.isNotBlank() && name.length <= 40)
         require(WorkoutGoals.validAmount(amount, unit))
         require(projectId == null || workoutProjects().any { it.id == projectId })
+        appendWorkout(name, unit, amount, now, projectId)
+    }
+
+    fun completeWorkoutGoal(goalId: String, now: ZonedDateTime): Boolean {
+        val goal = workoutGoals().firstOrNull { it.id == goalId } ?: return false
+        val target = goal.target ?: return false
+        val completed = workoutRecords(now.zone).filter {
+            it.projectId == goal.id && it.at.toLocalDate() == now.toLocalDate() && it.unit.dimension == goal.unit.dimension
+        }.fold(BigDecimal.ZERO) { sum, record -> sum + record.amount * record.unit.scale }
+        val remaining = target * goal.unit.scale - completed
+        if (remaining <= BigDecimal.ZERO) return false
+        val inGoalUnits = try { remaining.divide(goal.unit.scale).stripTrailingZeros() } catch (_: ArithmeticException) { null }
+        val unit = if (inGoalUnits != null && WorkoutGoals.validAmount(inGoalUnits, goal.unit)) goal.unit else when (goal.unit.dimension) {
+            "time" -> WorkoutUnit.SECONDS
+            "distance" -> WorkoutUnit.METERS
+            else -> WorkoutUnit.REPETITIONS
+        }
+        // Derived amounts use base units when conversion would lose precision; the target is already validated.
+        val amount = if (unit == goal.unit) inGoalUnits!! else remaining
+        appendWorkout(goal.name, unit, amount, now, goal.id)
+        return true
+    }
+
+    private fun appendWorkout(name: String, unit: WorkoutUnit, amount: BigDecimal, now: ZonedDateTime, projectId: String?) {
         val array = records("workout.records")
         val row = JSONObject().put("id", UUID.randomUUID().toString())
             .put("at", now.toInstant().toEpochMilli())

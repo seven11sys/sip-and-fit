@@ -57,6 +57,27 @@ class WorkoutFlowTest {
         assertEquals(7, store.workoutProjects().size)
     }
 
+    @Test fun quickCompleteRecordsGoalWithoutDialogAndUndoReenablesIt() {
+        val project = store.workoutProjects().first()
+        val goal = WorkoutGoal(project.id, project.name, WorkoutUnit.REPETITIONS, java.math.BigDecimal("30"))
+        store.saveGoal(goal)
+        activity.finish()
+        activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        click(root, "健身")
+        root.findViewWithTag<Button>("goal.complete.${goal.id}").performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(ShadowAlertDialog.getLatestAlertDialog())
+        val records = store.workoutRecords(ZonedDateTime.now().zone)
+        assertEquals(1, records.size)
+        assertEquals(java.math.BigDecimal("30"), records.single().amount)
+        val done = root.findViewWithTag<Button>("goal.complete.${goal.id}")
+        assertEquals("已完成", done.text.toString())
+        assertFalse(done.isEnabled)
+        click(root.findViewWithTag<LinearLayout>("workout.history"), "撤回")
+        assertTrue(root.findViewWithTag<Button>("goal.complete.${goal.id}").isEnabled)
+        assertTrue(store.workoutRecords(ZonedDateTime.now().zone).isEmpty())
+    }
+
     @Test fun statisticsSwitchesPeriodsAndUndoUpdatesSelectedPeriod() {
         click(root, "100 ml")
         val panel = root.findViewWithTag<StatsPanel>("water.statistics")
